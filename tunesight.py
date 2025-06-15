@@ -11,9 +11,12 @@ from sklearn.metrics import accuracy_score, r2_score, classification_report, con
 from sklearn.linear_model import Ridge, Lasso, LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.svm import SVC, SVR
-from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor, plot_tree
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 import xgboost as xgb
+from io import BytesIO
+import base64
+import joblib
 
 warnings.filterwarnings('ignore')
 
@@ -295,6 +298,79 @@ def create_model_visualizations(selected_model, problem_type, X_test, y_test, y_
         st.pyplot(fig)
         plt.close()
 
+def create_decision_tree_visualization(model, feature_names=None):
+    """Create decision tree visualization"""
+    if hasattr(model, 'tree_'):
+        st.subheader("🌳 Decision Tree Visualization")
+
+        fig, ax = plt.subplots(figsize=(20, 10))
+        plot_tree(model, ax=ax, feature_names=feature_names,
+                 filled=True, rounded=True, fontsize=10, max_depth=3)
+        ax.set_title("Decision Tree Structure (Max Depth: 3)")
+        st.pyplot(fig)
+        plt.close()
+
+def create_loss_curves(model, X_train, y_train, X_test, y_test, problem_type):
+    """Create loss curves for applicable models"""
+    if hasattr(model, 'loss_curve_') or 'XGB' in str(type(model)):
+        st.subheader("📈 Loss vs Epochs")
+
+        if 'XGB' in str(type(model)):
+            train_scores = []
+            test_scores = []
+            n_estimators = model.n_estimators
+            estimator_range = list(range(10, min(n_estimators + 1, 201), 10))
+
+            for n_est in estimator_range:
+                temp_model = type(model)(n_estimators=n_est, random_state=42)
+                temp_model.fit(X_train, y_train)
+
+                train_pred = temp_model.predict(X_train)
+                test_pred = temp_model.predict(X_test)
+
+                if problem_type == 'classification':
+                    train_score = accuracy_score(y_train, train_pred)
+                    test_score = accuracy_score(y_test, test_pred)
+                else:
+                    train_score = r2_score(y_train, train_pred)
+                    test_score = r2_score(y_test, test_pred)
+
+                train_scores.append(train_score)
+                test_scores.append(test_score)
+
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.plot(estimator_range, train_scores, 'b-', label='Training Score')
+            ax.plot(estimator_range, test_scores, 'r-', label='Validation Score')
+            ax.set_xlabel('Number of Estimators')
+            ax.set_ylabel('Score')
+            ax.set_title('Learning Curves')
+            ax.legend()
+            ax.grid(True)
+            st.pyplot(fig)
+            plt.close()
+
+def create_model_download(selected_model):
+    """Create downloadable model file"""
+    try:
+        model_package = {
+            'model': selected_model['Model Object'],
+            'model_name': selected_model['Model'],
+            'best_parameters': selected_model['Best Parameters'],
+            'test_score': selected_model['Best Score'],
+            'cv_score': selected_model['CV Score'],
+            'timestamp': pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+
+        model_buffer = BytesIO()
+        joblib.dump(model_package, model_buffer)
+        model_bytes = model_buffer.getvalue()
+
+        return model_bytes, f"{selected_model['Model'].replace(' ', '_').lower()}_model.pkl"
+
+    except Exception as e:
+        st.error(f"Error creating model download: {e}")
+        return None, None
+
 def main():
     st.title("🤖 Machine Learning Hyperparameter Tuning App")
     st.markdown("Upload your dataset and let's find the best model with optimal parameters!")
@@ -333,6 +409,10 @@ def main():
             if results:
                 st.session_state['results'] = results
                 st.session_state['problem_type'] = problem_type
+                st.session_state['X_train'] = X_train
+                st.session_state['X_test'] = X_test
+                st.session_state['y_train'] = y_train
+                st.session_state['y_test'] = y_test
                 st.success("🎉 All models trained successfully!")
 
     if 'results' in st.session_state:
@@ -350,6 +430,53 @@ def main():
             selected_model, problem_type,
             selected_model['X_test'], selected_model['y_test'], selected_model['Predictions']
         )
+
+        if 'Tree' in selected_model_name:
+            feature_names = [f'Feature_{i}' for i in range(selected_model['X_test'].shape[1])]
+            create_decision_tree_visualization(selected_model['Model Object'], feature_names)
+
+        if 'XGB' in selected_model_name or 'Random Forest' in selected_model_name:
+            create_loss_curves(
+                selected_model['Model Object'],
+                st.session_state['X_train'], st.session_state['y_train'],
+                st.session_state['X_test'], st.session_state['y_test'],
+                problem_type
+            )
+
+        st.subheader("📥 Download Results")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            results_summary = pd.DataFrame([
+                {
+                    'Model': r['Model'],
+                    'Test_Score': r['Best Score'],
+                    'CV_Score': r['CV Score'],
+                    'Best_Parameters': str(r['Best Parameters'])
+                }
+                for r in results
+            ])
+
+            csv = results_summary.to_csv(index=False)
+            st.download_button(
+                label="📊 Download Results CSV",
+                data=csv,
+                file_name="model_results.csv",
+                mime="text/csv"
+            )
+
+        with col2:
+            if 'selected_model' in locals():
+                model_bytes, filename = create_model_download(selected_model)
+
+                if model_bytes is not None:
+                    st.download_button(
+                        label="🤖 Download Selected Model",
+                        data=model_bytes,
+                        file_name=filename,
+                        mime="application/octet-stream",
+                        help="Download the trained model with parameters for future use"
+                    )
 
 if __name__ == "__main__":
     main()
