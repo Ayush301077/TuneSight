@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import warnings
-from sklearn.metrics import roc_curve, auc
+from sklearn.metrics import roc_curve, auc, silhouette_score
 from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import accuracy_score, r2_score, classification_report, confusion_matrix
@@ -13,6 +13,8 @@ from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.svm import SVC, SVR
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor, plot_tree
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
+from sklearn.decomposition import PCA
 import xgboost as xgb
 from io import BytesIO
 import base64
@@ -371,6 +373,176 @@ def create_model_download(selected_model):
         st.error(f"Error creating model download: {e}")
         return None, None
 
+def run_clustering(X_scaled, df):
+    """Run clustering algorithms"""
+    st.subheader("🎯 Clustering Analysis")
+
+    clustering_results = {}
+
+    st.write("**K-Means Clustering**")
+    k_range = range(2, min(11, len(X_scaled)))
+    silhouette_scores = []
+
+    for k in k_range:
+        kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+        labels = kmeans.fit_predict(X_scaled)
+        score = silhouette_score(X_scaled, labels)
+        silhouette_scores.append(score)
+
+    best_k = k_range[np.argmax(silhouette_scores)]
+    kmeans_best = KMeans(n_clusters=best_k, random_state=42, n_init=10)
+    kmeans_labels = kmeans_best.fit_predict(X_scaled)
+
+    clustering_results['K-Means'] = {
+        'labels': kmeans_labels,
+        'n_clusters': best_k,
+        'silhouette_score': max(silhouette_scores)
+    }
+
+    st.write(f"Best K: {best_k}, Silhouette Score: {max(silhouette_scores):.3f}")
+
+    if X_scaled.shape[1] >= 2:
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+
+        scatter = ax1.scatter(X_scaled[:, 0], X_scaled[:, 1], c=kmeans_labels, cmap='viridis')
+        ax1.set_title('K-Means Clustering Results')
+        ax1.set_xlabel('Feature 1')
+        ax1.set_ylabel('Feature 2')
+        plt.colorbar(scatter, ax=ax1)
+
+        ax2.plot(k_range, silhouette_scores, 'bo-')
+        ax2.set_xlabel('Number of Clusters')
+        ax2.set_ylabel('Silhouette Score')
+        ax2.set_title('Silhouette Score vs Number of Clusters')
+        ax2.axvline(x=best_k, color='r', linestyle='--', label=f'Best K={best_k}')
+        ax2.legend()
+
+        st.pyplot(fig)
+        plt.close()
+
+    return clustering_results
+
+def create_advanced_clustering_analysis(X_scaled):
+    """Enhanced clustering analysis with multiple algorithms"""
+    st.subheader("🎯 Advanced Clustering Analysis")
+
+    clustering_methods = {}
+
+    st.write("**K-Means Clustering with Elbow Method**")
+    k_range = range(2, min(11, len(X_scaled) // 2))
+    inertias = []
+    silhouette_scores = []
+
+    for k in k_range:
+        kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+        labels = kmeans.fit_predict(X_scaled)
+        inertias.append(kmeans.inertia_)
+        silhouette_scores.append(silhouette_score(X_scaled, labels))
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+
+    ax1.plot(k_range, inertias, 'bo-')
+    ax1.set_xlabel('Number of Clusters (k)')
+    ax1.set_ylabel('Inertia')
+    ax1.set_title('Elbow Method for Optimal k')
+    ax1.grid(True)
+
+    ax2.plot(k_range, silhouette_scores, 'ro-')
+    ax2.set_xlabel('Number of Clusters (k)')
+    ax2.set_ylabel('Silhouette Score')
+    ax2.set_title('Silhouette Analysis')
+    ax2.grid(True)
+
+    st.pyplot(fig)
+    plt.close()
+
+    best_k = k_range[np.argmax(silhouette_scores)]
+    best_kmeans = KMeans(n_clusters=best_k, random_state=42, n_init=10)
+    kmeans_labels = best_kmeans.fit_predict(X_scaled)
+
+    clustering_methods['K-Means'] = {
+        'labels': kmeans_labels,
+        'n_clusters': best_k,
+        'silhouette_score': max(silhouette_scores)
+    }
+
+    st.write("**DBSCAN Clustering**")
+    eps_range = np.arange(0.1, 2.0, 0.1)
+    min_samples_range = [3, 5, 7, 10]
+
+    best_dbscan_score = -1
+    best_dbscan_params = {}
+
+    for eps in eps_range:
+        for min_samples in min_samples_range:
+            dbscan = DBSCAN(eps=eps, min_samples=min_samples)
+            labels = dbscan.fit_predict(X_scaled)
+
+            if len(set(labels)) > 1:
+                try:
+                    score = silhouette_score(X_scaled, labels)
+                    if score > best_dbscan_score:
+                        best_dbscan_score = score
+                        best_dbscan_params = {'eps': eps, 'min_samples': min_samples}
+                        clustering_methods['DBSCAN'] = {
+                            'labels': labels,
+                            'params': best_dbscan_params,
+                            'silhouette_score': score
+                        }
+                except:
+                    continue
+
+    st.write("**Hierarchical Clustering**")
+    linkage_methods = ['ward', 'complete', 'average']
+    best_hierarchical_score = -1
+
+    for linkage in linkage_methods:
+        for n_clusters in k_range:
+            hierarchical = AgglomerativeClustering(n_clusters=n_clusters, linkage=linkage)
+            labels = hierarchical.fit_predict(X_scaled)
+            score = silhouette_score(X_scaled, labels)
+
+            if score > best_hierarchical_score:
+                best_hierarchical_score = score
+                clustering_methods['Hierarchical'] = {
+                    'labels': labels,
+                    'n_clusters': n_clusters,
+                    'linkage': linkage,
+                    'silhouette_score': score
+                }
+
+    st.subheader("📊 Clustering Results Comparison")
+    comparison_df = pd.DataFrame([
+        {
+            'Method': method,
+            'Silhouette Score': results['silhouette_score'],
+            'Parameters': str({k: v for k, v in results.items() if k not in ['labels', 'silhouette_score']})
+        }
+        for method, results in clustering_methods.items()
+    ]).sort_values('Silhouette Score', ascending=False)
+
+    st.dataframe(comparison_df)
+
+    best_method = comparison_df.iloc[0]['Method']
+    best_labels = clustering_methods[best_method]['labels']
+
+    if X_scaled.shape[1] >= 2:
+        st.subheader(f"🎯 Best Clustering Result: {best_method}")
+
+        pca_2d = PCA(n_components=2)
+        X_pca_2d = pca_2d.fit_transform(X_scaled)
+
+        fig, ax = plt.subplots(figsize=(10, 8))
+        scatter = ax.scatter(X_pca_2d[:, 0], X_pca_2d[:, 1], c=best_labels, cmap='viridis', alpha=0.7)
+        ax.set_xlabel(f'PC1 ({pca_2d.explained_variance_ratio_[0]:.2%} variance)')
+        ax.set_ylabel(f'PC2 ({pca_2d.explained_variance_ratio_[1]:.2%} variance)')
+        ax.set_title(f'{best_method} Clustering Results (PCA Projection)')
+        plt.colorbar(scatter)
+        st.pyplot(fig)
+        plt.close()
+
+    return clustering_methods
+
 def main():
     st.title("🤖 Machine Learning Hyperparameter Tuning App")
     st.markdown("Upload your dataset and let's find the best model with optimal parameters!")
@@ -413,6 +585,9 @@ def main():
                 st.session_state['X_test'] = X_test
                 st.session_state['y_train'] = y_train
                 st.session_state['y_test'] = y_test
+                st.session_state['X_train_scaled'] = X_train_scaled
+                st.session_state['X_test_scaled'] = X_test_scaled
+
                 st.success("🎉 All models trained successfully!")
 
     if 'results' in st.session_state:
@@ -477,6 +652,31 @@ def main():
                         mime="application/octet-stream",
                         help="Download the trained model with parameters for future use"
                     )
+
+    if df is not None:
+        st.subheader("🔬 Advanced Analysis")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("🎯 Run Clustering Analysis"):
+                if 'target_col' in locals():
+                    X = df.drop(columns=[target_col])
+                else:
+                    X = df.select_dtypes(include=[np.number])
+
+                categorical_cols = X.select_dtypes(include=['object']).columns
+                if len(categorical_cols) > 0:
+                    for col in categorical_cols:
+                        le = LabelEncoder()
+                        X[col] = le.fit_transform(X[col].astype(str))
+
+                X = X.fillna(X.mean())
+                scaler = StandardScaler()
+                X_scaled = scaler.fit_transform(X)
+
+                clustering_results = create_advanced_clustering_analysis(X_scaled)
+                st.session_state['clustering_results'] = clustering_results
 
 if __name__ == "__main__":
     main()
