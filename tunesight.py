@@ -815,11 +815,8 @@ def create_prediction_ui():
                     st.write(prediction_proba)
 
 def main():
-    st.title("🤖 TuneSight - See Clearly, Tune Precisely ")
-    st.markdown("Upload your dataset and let's find the best model with optimal parameters!")
-    
-
-
+    st.title("🤖 TuneSight - Tune Precisely, See Clearly")
+    st.markdown("Upload your cleaned dataset from DeMessify and find the best model with optimal parameters!")
     st.markdown("---")
     st.markdown("### 🎯 App Features")
     st.markdown("""
@@ -828,7 +825,7 @@ def main():
     - **Comprehensive Visualizations** for all model types
     - **Interactive Model Comparison** dashboard
     - **Advanced Clustering Analysis** with multiple algorithms
-    - **Principal Component Analysis** with variance explanation
+    - **Prediction UI** for new data inputs
     - **Downloadable Results** in CSV format
     """)
     
